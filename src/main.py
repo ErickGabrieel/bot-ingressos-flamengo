@@ -7,11 +7,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 
-EVENT_ID = "37247"
-EVENT_URL = (
-    "https://ingressos.flamengo.com.br/buy/sector"
-    f"?event={EVENT_ID}&allow-blocked-member=1"
-)
+HOME_URL = "https://ingressos.flamengo.com.br/"
 
 PREFERRED_SECTIONS = (
     "NORTE NÍVEL 2 | F",
@@ -34,6 +30,23 @@ def get_profile_directory() -> Path:
 
 def normalize_name(value: str) -> str:
     return " ".join(value.split()).casefold()
+
+
+def get_event_id(url: str) -> str:
+    query_parameters = parse_qs(urlparse(url).query)
+    event_ids = [
+        event_id.strip()
+        for event_id in query_parameters.get("event", [])
+        if event_id.strip()
+    ]
+
+    if len(event_ids) != 1:
+        raise RuntimeError(
+            "Não foi possível identificar o evento pela URL: "
+            f"{url}"
+        )
+
+    return event_ids[0]
 
 
 def show_sector_availability(page: Page) -> None:
@@ -212,7 +225,7 @@ def main() -> None:
 
         try:
             page.goto(
-                EVENT_URL,
+                HOME_URL,
                 wait_until="domcontentloaded",
                 timeout=60_000,
             )
@@ -220,7 +233,8 @@ def main() -> None:
             print("A página demorou para carregar completamente.")
 
         print("Faça o login manualmente, se necessário.")
-        print("Clique em 'Continuar como público geral'.")
+        print("Escolha qualquer jogo disponível e clique em 'Comprar'.")
+        print("Clique em 'Continuar como público geral', se aparecer.")
         print("Aguardando a página de setores...")
 
         page.wait_for_url(
@@ -239,17 +253,8 @@ def main() -> None:
             timeout=30_000,
         )
 
-        current_url = page.url
-        query_parameters = parse_qs(urlparse(current_url).query)
-        current_event_ids = query_parameters.get("event", [])
-
-        if EVENT_ID not in current_event_ids:
-            raise RuntimeError(
-                f"Evento incorreto. Esperado: {EVENT_ID}. "
-                f"URL encontrada: {current_url}"
-            )
-
-        print(f"Evento correto detectado: {EVENT_ID}")
+        current_event_id = get_event_id(page.url)
+        print(f"Evento detectado automaticamente: {current_event_id}")
         show_sector_availability(page)
 
         selected_section = select_preferred_sector(page)
