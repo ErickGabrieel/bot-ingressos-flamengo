@@ -1,0 +1,36 @@
+TICKETBOT - INSTRUÇÕES PARA USO
+================================
+
+1. Abra TicketBOT.exe.
+2. Informe o ID ou a URL do evento. Se deixar vazio, escolha o jogo
+   manualmente no navegador.
+3. Escolha Fla-ID ou público geral ao usar apenas o ID do evento.
+4. Escolha 1 ou 2 ingressos e um intervalo de pelo menos 30 segundos.
+5. Clique em "Iniciar monitoramento".
+6. Faça login e resolva CAPTCHA manualmente, quando forem solicitados.
+7. Quando o ingresso for colocado no carrinho, o monitoramento encerrará.
+8. Revise e finalize tudo manualmente no navegador.
+
+TELEGRAM
+--------
+
+1. Crie seu próprio bot usando o bot oficial @BotFather no Telegram.
+2. Cole o token no aplicativo. Nunca compartilhe esse token.
+3. Envie /start para o bot que você criou.
+4. Clique em "Buscar Chat ID" e depois em "Testar Telegram".
+
+LIMITES
+-------
+
+- Uma inclusão no carrinho por execução.
+- Máximo de dois ingressos.
+- O aplicativo não contorna CAPTCHA e não realiza pagamento.
+- Use somente de acordo com os termos do site e as regras aplicáveis.
+- É necessário ter Microsoft Edge ou Google Chrome instalado.
+
+PRIVACIDADE
+-----------
+
+O aplicativo não inclui login, senha, token ou perfil de navegador do
+desenvolvedor. Cada usuário deve usar suas próprias credenciais e seu próprio
+bot do Telegram.
