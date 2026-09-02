@@ -2,17 +2,18 @@ import os
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Locator, Page, expect
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 
 HOME_URL = "https://ingressos.flamengo.com.br/"
 
-PREFERRED_SECTIONS = (
-    "NORTE NÍVEL 2 | F",
-    "SUL NÍVEL 2 | C",
-    "LESTE SUPERIOR",
+PREFERRED_SECTOR_REGIONS = (
+    "NORTE",
+    "SUL",
+    "LESTE",
+    "OESTE",
 )
 
 DESIRED_QUANTITY = 2
@@ -49,6 +50,40 @@ def get_event_id(url: str) -> str:
     return event_ids[0]
 
 
+def get_access_mode(url: str) -> str:
+    path = urlparse(url).path.rstrip("/")
+
+    if path == "/member/sector":
+        return "Fla-ID"
+
+    if path == "/buy/sector":
+        return "público geral"
+
+    raise RuntimeError(
+        "A página aberta não é uma página de setores conhecida: "
+        f"{url}"
+    )
+
+
+def is_sector_available(sector_row: Locator) -> bool:
+    class_attribute = (
+        sector_row.get_attribute("class") or ""
+    ).casefold()
+    aria_disabled = (
+        sector_row.get_attribute("aria-disabled") or ""
+    ).casefold()
+    unavailable_markers = ("sold", "disabled", "unavailable")
+
+    return (
+        sector_row.is_enabled()
+        and aria_disabled != "true"
+        and not any(
+            marker in class_attribute
+            for marker in unavailable_markers
+        )
+    )
+
+
 def show_sector_availability(page: Page) -> None:
     sector_rows = page.locator("a.match_sector[data-sector]")
     sector_count = sector_rows.count()
@@ -76,8 +111,7 @@ def show_sector_availability(page: Page) -> None:
             .strip()
         )
 
-        class_attribute = sector_row.get_attribute("class") or ""
-        is_available = "sold" not in class_attribute.split()
+        is_available = is_sector_available(sector_row)
 
         status = "DISPONÍVEL" if is_available else "INDISPONÍVEL"
         print(f"[{status}] {sector_name} — {sector_price}")
@@ -87,8 +121,8 @@ def select_preferred_sector(page: Page) -> str | None:
     sector_rows = page.locator("a.match_sector[data-sector]")
     sector_count = sector_rows.count()
 
-    for preferred_section in PREFERRED_SECTIONS:
-        preference_found = False
+    for preferred_region in PREFERRED_SECTOR_REGIONS:
+        region_found = False
 
         for index in range(sector_count):
             sector_row = sector_rows.nth(index)
@@ -100,26 +134,24 @@ def select_preferred_sector(page: Page) -> str | None:
                 .strip()
             )
 
-            if normalize_name(sector_name) != normalize_name(
-                preferred_section
+            if not normalize_name(sector_name).startswith(
+                normalize_name(preferred_region)
             ):
                 continue
 
-            preference_found = True
-
-            class_attribute = sector_row.get_attribute("class") or ""
-            is_available = "sold" not in class_attribute.split()
+            region_found = True
+            is_available = is_sector_available(sector_row)
 
             if not is_available:
-                print(f"Preferência indisponível: {sector_name}")
-                break
+                print(f"Setor indisponível: {sector_name}")
+                continue
 
             print(f"Selecionando setor: {sector_name}")
             sector_row.click()
             return sector_name
 
-        if not preference_found:
-            print(f"Preferência não encontrada: {preferred_section}")
+        if not region_found:
+            print(f"Região não encontrada: {preferred_region}")
 
     return None
 
@@ -234,14 +266,11 @@ def main() -> None:
 
         print("Faça o login manualmente, se necessário.")
         print("Escolha qualquer jogo disponível e clique em 'Comprar'.")
-        print("Clique em 'Continuar como público geral', se aparecer.")
-        print("Aguardando a página de setores...")
-
-        page.wait_for_url(
-            "**/buy/sector**",
-            wait_until="domcontentloaded",
-            timeout=0,
+        print(
+            "Entre com Fla-ID ou clique em "
+            "'Continuar como público geral'."
         )
+        print("Aguardando a página de setores...")
 
         sector_page_indicator = page.get_by_text(
             "Selecione o setor:",
@@ -250,10 +279,12 @@ def main() -> None:
 
         sector_page_indicator.wait_for(
             state="visible",
-            timeout=30_000,
+            timeout=0,
         )
 
+        access_mode = get_access_mode(page.url)
         current_event_id = get_event_id(page.url)
+        print(f"Acesso detectado: {access_mode}")
         print(f"Evento detectado automaticamente: {current_event_id}")
         show_sector_availability(page)
 
