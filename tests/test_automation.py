@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from src.automation import (
     BotConfig,
+    extract_email_from_text,
     get_access_mode,
     get_event_id,
     is_known_sector_url,
@@ -29,6 +30,16 @@ def make_sector(name: str, classes: str = "match_sector") -> MagicMock:
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_extracts_visible_account_email(self) -> None:
+        text = "Erick Gabriel\nuser@example.com\nNação sem Fronteiras"
+        self.assertEqual(
+            extract_email_from_text(text),
+            "user@example.com",
+        )
+
+    def test_returns_none_when_account_email_is_not_visible(self) -> None:
+        self.assertIsNone(extract_email_from_text("Olá, Erick"))
+
     def test_builds_fla_id_url_from_event_id(self) -> None:
         self.assertEqual(
             resolve_target_url("39374", "fla_id"),

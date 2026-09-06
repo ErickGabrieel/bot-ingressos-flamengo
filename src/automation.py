@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,7 @@ from .telegram_client import TelegramError, send_telegram_message
 
 
 HOME_URL = "https://ingressos.flamengo.com.br/"
+MY_ACCOUNT_URL = "https://ingressos.flamengo.com.br/my-account"
 OFFICIAL_HOST = "ingressos.flamengo.com.br"
 FLA_ID_HOST = "flaid.flamengo.com.br"
 PUBLIC_SECTOR_PATHS = ("/buy", "/buy/sector")
@@ -24,6 +26,11 @@ PREFERRED_SECTOR_REGIONS = ("NORTE", "SUL", "LESTE", "OESTE")
 AccessMode = Literal["manual", "fla_id", "public"]
 LogCallback = Callable[[str], None]
 HoldCallback = Callable[[], None]
+EMAIL_PATTERN = re.compile(
+    r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+"
+)
 
 
 class MonitorStopped(RuntimeError):
@@ -135,6 +142,59 @@ def verify_browser_runtime() -> bool:
 
 def normalize_name(value: str) -> str:
     return " ".join(value.split()).casefold()
+
+
+def extract_email_from_text(text: str) -> str | None:
+    match = EMAIL_PATTERN.search(text)
+    return match.group(0) if match else None
+
+
+def get_event_name(page: Page, event_id: str) -> str:
+    try:
+        title = page.title().strip()
+    except PlaywrightError:
+        title = ""
+
+    if title:
+        for prefix in ("Ingresso ", "Ingressos "):
+            if title.startswith(prefix):
+                title = title[len(prefix):].strip()
+                break
+        return title
+
+    return f"Evento {event_id}"
+
+
+def get_account_email(context, log: LogCallback) -> str | None:
+    account_page = None
+
+    try:
+        account_page = context.new_page()
+        account_page.goto(
+            MY_ACCOUNT_URL,
+            wait_until="domcontentloaded",
+            timeout=30_000,
+        )
+        account_page.locator("body").wait_for(
+            state="visible",
+            timeout=30_000,
+        )
+        email = extract_email_from_text(
+            account_page.locator("body").inner_text()
+        )
+
+        if email:
+            log("E-mail da conta identificado na página Minha conta.")
+        else:
+            log("O e-mail não foi exibido na página Minha conta.")
+
+        return email
+    except PlaywrightError:
+        log("Não foi possível consultar a página Minha conta.")
+        return None
+    finally:
+        if account_page is not None:
+            account_page.close()
 
 
 def get_event_id(url: str) -> str:
@@ -536,14 +596,18 @@ def run_ticket_monitor(
 
             access_mode = get_access_mode(sector_url)
             event_id = get_event_id(sector_url)
+            event_name = get_event_name(page, event_id)
+            account_email = get_account_email(context, log)
+            display_email = account_email or "não identificado"
             log(f"Acesso detectado: {access_mode}")
             log(f"Evento detectado: {event_id}")
             _notify_safely(
                 config,
                 (
                     "TicketBOT: evento detectado.\n"
-                    f"Evento: {event_id}\n"
-                    f"Acesso: {access_mode}"
+                    f"Evento: {event_name}\n"
+                    f"Login: {access_mode}\n"
+                    f"E-mail: {display_email}"
                 ),
                 log,
             )
@@ -578,9 +642,11 @@ def run_ticket_monitor(
                         config,
                         (
                             "TicketBOT: ingressos no carrinho.\n"
-                            f"Evento: {event_id}\n"
+                            f"Evento: {event_name}\n"
                             f"Setor: {selected_section}\n"
                             f"Quantidade: {selected_quantity}\n"
+                            f"Login: {access_mode}\n"
+                            f"E-mail: {display_email}\n"
                             "Finalize manualmente no navegador."
                         ),
                         log,
