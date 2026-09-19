@@ -3,9 +3,11 @@ from unittest.mock import MagicMock, patch
 
 from src.automation import (
     BotConfig,
+    extract_account_name_from_text,
     extract_email_from_text,
     get_access_mode,
     get_event_id,
+    get_profile_directory,
     is_known_sector_url,
     resolve_target_url,
     select_preferred_sector,
@@ -30,6 +32,12 @@ def make_sector(name: str, classes: str = "match_sector") -> MagicMock:
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_extracts_visible_logged_in_name(self) -> None:
+        self.assertEqual(
+            extract_account_name_from_text("Início\nOlá, Felipe\nSair"),
+            "Felipe",
+        )
+
     def test_extracts_visible_account_email(self) -> None:
         text = "Erick Gabriel\nuser@example.com\nNação sem Fronteiras"
         self.assertEqual(
@@ -60,7 +68,18 @@ class ConfigurationTests(unittest.TestCase):
 
     def test_rejects_short_monitor_interval(self) -> None:
         with self.assertRaises(ValueError):
-            BotConfig(monitor_interval_seconds=10)
+            BotConfig(monitor_interval_seconds=9)
+
+    def test_accepts_ten_second_monitor_interval(self) -> None:
+        config = BotConfig(monitor_interval_seconds=10)
+        self.assertEqual(config.monitor_interval_seconds, 10)
+
+    @patch.dict("os.environ", {"LOCALAPPDATA": "C:\\Temp"})
+    def test_accounts_use_distinct_browser_profiles(self) -> None:
+        first_profile = get_profile_directory("Conta Erick")
+        second_profile = get_profile_directory("Conta Felipe")
+
+        self.assertNotEqual(first_profile, second_profile)
 
     def test_rejects_more_than_two_tickets(self) -> None:
         with self.assertRaises(ValueError):
@@ -149,6 +168,19 @@ class SectorSelectionTests(unittest.TestCase):
 
         self.assertEqual(selected, "SUL NÍVEL 1 | C")
         south_available.click.assert_called_once()
+
+    def test_does_not_click_when_another_account_claimed_cart(self) -> None:
+        north_available = make_sector("NORTE NÍVEL 1 | E")
+        page = self.make_page([north_available])
+
+        selected = select_preferred_sector(
+            page,
+            log=lambda _: None,
+            before_click=lambda _: False,
+        )
+
+        self.assertIsNone(selected)
+        north_available.click.assert_not_called()
 
 
 class TelegramTests(unittest.TestCase):

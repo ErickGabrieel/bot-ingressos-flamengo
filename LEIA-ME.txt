@@ -2,27 +2,33 @@ TICKETBOT - INSTRUÇÕES PARA USO
 ================================
 
 1. Abra TicketBOT.exe.
-2. Informe o ID ou a URL do evento. Se deixar vazio, escolha o jogo
+2. Em cada aba, dê um nome diferente à conta. O login desse nome ficará
+   separado dos demais.
+3. Informe o ID ou a URL do evento. Se deixar vazio, escolha o jogo
    manualmente no navegador.
-3. Escolha Fla-ID ou público geral ao usar apenas o ID do evento.
-4. Escolha 1 ou 2 ingressos e um intervalo de pelo menos 30 segundos.
-5. Clique em "Iniciar monitoramento".
-6. Faça login e resolva CAPTCHA manualmente, quando forem solicitados.
-7. Quando o ingresso for colocado no carrinho, o monitoramento encerrará.
-8. Revise e finalize tudo manualmente no navegador.
+4. Escolha Fla-ID ou público geral ao usar apenas o ID do evento.
+5. Escolha 1 ou 2 ingressos e um intervalo de pelo menos 10 segundos.
+6. Clique em "+ Adicionar conta" se precisar de outra aba (máximo de 4).
+7. Clique em "Iniciar todas" ou inicie uma conta específica.
+8. Faça o login e resolva CAPTCHA manualmente em cada navegador aberto.
+9. A primeira conta que encontrar ingresso assume a tentativa de carrinho;
+   todas as outras param automaticamente.
+10. Revise e finalize tudo manualmente no navegador.
 
 TELEGRAM
 --------
 
 1. Crie seu próprio bot usando o bot oficial @BotFather no Telegram.
-2. Cole o token no aplicativo. Nunca compartilhe esse token.
+2. Cole o token no campo compartilhado do aplicativo. Nunca o compartilhe.
 3. Envie /start para o bot que você criou.
-4. Clique em "Buscar Chat ID" e depois em "Testar Telegram".
+4. Clique em "Buscar Chat ID" e depois em "Testar".
+5. Todas as abas avisam nesse mesmo Telegram e identificam a conta.
 
 LIMITES
 -------
 
-- Uma inclusão no carrinho por execução.
+- Até quatro contas monitorando, mas somente uma tentativa de carrinho por
+  rodada.
 - Máximo de dois ingressos.
 - O aplicativo não contorna CAPTCHA e não realiza pagamento.
 - Use somente de acordo com os termos do site e as regras aplicáveis.

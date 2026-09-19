@@ -1,3 +1,4 @@
+import hashlib
 import os
 import re
 import sys
@@ -26,6 +27,7 @@ PREFERRED_SECTOR_REGIONS = ("NORTE", "SUL", "LESTE", "OESTE")
 AccessMode = Literal["manual", "fla_id", "public"]
 LogCallback = Callable[[str], None]
 HoldCallback = Callable[[], None]
+CartClaimCallback = Callable[[str], bool]
 EMAIL_PATTERN = re.compile(
     r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
     r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
@@ -39,15 +41,23 @@ class MonitorStopped(RuntimeError):
 
 @dataclass(frozen=True)
 class BotConfig:
+    profile_name: str = "default"
+    account_label: str = "Conta principal"
     target: str = ""
     access_mode: AccessMode = "manual"
     desired_quantity: int = 2
     minimum_quantity: int = 1
-    monitor_interval_seconds: int = 30
+    monitor_interval_seconds: int = 10
     telegram_token: str = ""
     telegram_chat_id: str = ""
 
     def __post_init__(self) -> None:
+        if not self.profile_name.strip():
+            raise ValueError("Informe um nome para o perfil da conta.")
+
+        if not self.account_label.strip():
+            raise ValueError("Informe um nome para identificar a conta.")
+
         if self.access_mode not in {"manual", "fla_id", "public"}:
             raise ValueError("Modo de acesso inválido.")
 
@@ -57,10 +67,10 @@ class BotConfig:
         if not 1 <= self.minimum_quantity <= self.desired_quantity:
             raise ValueError("A quantidade mínima é inválida.")
 
-        if self.monitor_interval_seconds < 30:
+        if self.monitor_interval_seconds < 10:
             raise ValueError(
                 "O intervalo de monitoramento deve ser de pelo menos "
-                "30 segundos."
+                "10 segundos."
             )
 
         has_token = bool(self.telegram_token.strip())
@@ -79,13 +89,27 @@ class BotConfig:
             )
 
 
-def get_profile_directory() -> Path:
+def get_profile_directory(profile_name: str = "default") -> Path:
     local_app_data = os.getenv("LOCALAPPDATA")
 
     if not local_app_data:
         raise RuntimeError("Não foi possível localizar a pasta AppData.")
 
-    return Path(local_app_data) / "TicketBOT" / "browser-profile"
+    normalized_name = re.sub(
+        r"[^a-z0-9]+",
+        "-",
+        profile_name.casefold(),
+    ).strip("-") or "conta"
+    profile_hash = hashlib.sha256(
+        profile_name.casefold().encode("utf-8")
+    ).hexdigest()[:10]
+
+    return (
+        Path(local_app_data)
+        / "TicketBOT"
+        / "profiles"
+        / f"{normalized_name[:30]}-{profile_hash}"
+    )
 
 
 def launch_browser_context(playwright, profile_directory: Path):
@@ -147,6 +171,25 @@ def normalize_name(value: str) -> str:
 def extract_email_from_text(text: str) -> str | None:
     match = EMAIL_PATTERN.search(text)
     return match.group(0) if match else None
+
+
+def extract_account_name_from_text(text: str) -> str | None:
+    match = re.search(r"\bOl[áa],\s*([^\r\n]+)", text, re.IGNORECASE)
+
+    if not match:
+        return None
+
+    account_name = " ".join(match.group(1).split()).strip(" !")
+    return account_name or None
+
+
+def get_logged_in_name(page: Page) -> str | None:
+    try:
+        return extract_account_name_from_text(
+            page.locator("body").inner_text()
+        )
+    except PlaywrightError:
+        return None
 
 
 def get_event_name(page: Page, event_id: str) -> str:
@@ -373,6 +416,7 @@ def show_sector_availability(
 def select_preferred_sector(
     page: Page,
     log: LogCallback = print,
+    before_click: CartClaimCallback | None = None,
 ) -> str | None:
     sector_rows = locate_sector_rows(page)
     sector_count = len(sector_rows)
@@ -399,6 +443,13 @@ def select_preferred_sector(
             if not is_sector_available(sector_row):
                 log(f"Setor indisponível: {sector_name}")
                 continue
+
+            if before_click is not None and not before_click(sector_name):
+                log(
+                    "Outra conta assumiu a tentativa de carrinho. "
+                    "Esta conta será interrompida."
+                )
+                return None
 
             log(f"Selecionando setor: {sector_name}")
             sector_row.click()
@@ -567,10 +618,18 @@ def run_ticket_monitor(
     stop_event: Event,
     log: LogCallback = print,
     hold_after_success: HoldCallback | None = None,
+    claim_cart: CartClaimCallback | None = None,
 ) -> bool:
     target_url = resolve_target_url(config.target, config.access_mode)
-    profile_directory = get_profile_directory()
-    _notify_safely(config, "TicketBOT: monitoramento iniciado.", log)
+    profile_directory = get_profile_directory(config.profile_name)
+    _notify_safely(
+        config,
+        (
+            "TicketBOT: monitoramento iniciado.\n"
+            f"Conta configurada: {config.account_label}"
+        ),
+        log,
+    )
 
     with sync_playwright() as playwright:
         context = launch_browser_context(playwright, profile_directory)
@@ -597,6 +656,10 @@ def run_ticket_monitor(
             access_mode = get_access_mode(sector_url)
             event_id = get_event_id(sector_url)
             event_name = get_event_name(page, event_id)
+            account_name = (
+                get_logged_in_name(page)
+                or config.account_label.strip()
+            )
             account_email = get_account_email(context, log)
             display_email = account_email or "não identificado"
             log(f"Acesso detectado: {access_mode}")
@@ -605,6 +668,7 @@ def run_ticket_monitor(
                 config,
                 (
                     "TicketBOT: evento detectado.\n"
+                    f"Conta: {account_name}\n"
                     f"Evento: {event_name}\n"
                     f"Login: {access_mode}\n"
                     f"E-mail: {display_email}"
@@ -614,7 +678,16 @@ def run_ticket_monitor(
 
             while not stop_event.is_set():
                 available_count = show_sector_availability(page, log)
-                selected_section = select_preferred_sector(page, log)
+                selected_section = select_preferred_sector(
+                    page,
+                    log,
+                    before_click=claim_cart,
+                )
+
+                if selected_section is None and stop_event.is_set():
+                    raise MonitorStopped(
+                        "Outra conta assumiu a tentativa de carrinho."
+                    )
 
                 if selected_section is not None:
                     selected_location_indicator = page.get_by_text(
@@ -642,6 +715,7 @@ def run_ticket_monitor(
                         config,
                         (
                             "TicketBOT: ingressos no carrinho.\n"
+                            f"Conta: {account_name}\n"
                             f"Evento: {event_name}\n"
                             f"Setor: {selected_section}\n"
                             f"Quantidade: {selected_quantity}\n"
@@ -690,14 +764,20 @@ def run_ticket_monitor(
             log("Monitoramento interrompido.")
             _notify_safely(
                 config,
-                "TicketBOT: monitoramento interrompido.",
+                (
+                    "TicketBOT: monitoramento interrompido.\n"
+                    f"Conta: {config.account_label}"
+                ),
                 log,
             )
             return False
         except Exception:
             _notify_safely(
                 config,
-                "TicketBOT: ocorreu um erro no monitoramento.",
+                (
+                    "TicketBOT: ocorreu um erro no monitoramento.\n"
+                    f"Conta: {config.account_label}"
+                ),
                 log,
             )
             raise
